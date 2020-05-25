@@ -16,8 +16,10 @@ package dispatch
 import (
 	"encoding/json"
 	"fmt"
+	uid "github.com/satori/go.uuid"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/prometheus/common/model"
@@ -36,12 +38,20 @@ var DefaultRouteOpts = RouteOpts{
 	GroupByAll:     false,
 }
 
+type Fingerprint uint64
+
 // A Route is a node that contains definitions of how to handle alerts.
 type Route struct {
+
+	mtx        sync.RWMutex
+
+
 	parent *Route
 
 	// The configuration parameters for matches of this route.
 	RouteOpts RouteOpts
+
+	Uuid string
 
 	// Equality or regex matchers an alert has to fulfill to match
 	// this route.
@@ -53,6 +63,7 @@ type Route struct {
 	// Children routes of this route.
 	Routes []*Route
 }
+
 
 // TODO(ch) build router from staticRouters config.routers
 func NewRouteFromStatic(staticRouters []*config.Route, parent *Route) []*Route {
@@ -111,6 +122,10 @@ func NewRoute(cr *config.Route, parent *Route) *Route {
 		RouteOpts: opts,
 		Matchers:  matchers,
 		Continue:  cr.Continue,
+		Uuid: uid.NewV4().String(),
+	}
+	if cr.Uuid != "" {
+		route.Uuid = cr.Uuid
 	}
 
 	route.Routes = NewRoutes(cr.Routes, route)
@@ -127,6 +142,27 @@ func NewRoutes(croutes []*config.Route, parent *Route) []*Route {
 	return res
 }
 
+// TODO(ch) just append route for second level
+func (r *Route) AppendSecondRouter(rs *config.Route){
+	r.mtx.Lock()
+	defer r.mtx.Unlock()
+	rr :=NewRoute(rs, r)
+	r.Routes = append(r.Routes, rr)
+
+}
+
+// TODO(ch) just del route for second level
+func (r *Route) DelRouter(uuid string){
+	r.mtx.Lock()
+	defer r.mtx.Unlock()
+	for i, rr := range r.Routes {
+		if rr.Uuid == uuid {
+			r.Routes = append(r.Routes[:i], r.Routes[i+1:]...)
+		    break
+	 	}
+	}
+}
+
 // Match does a depth-first left-to-right search through the route tree
 // and returns the matching routing nodes.
 func (r *Route) Match(lset model.LabelSet) []*Route {
@@ -136,6 +172,8 @@ func (r *Route) Match(lset model.LabelSet) []*Route {
 
 	var all []*Route
 
+	r.mtx.RLock()
+	defer r.mtx.RUnlock()
 	for _, cr := range r.Routes {
 		matches := cr.Match(lset)
 

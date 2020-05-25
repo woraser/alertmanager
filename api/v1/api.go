@@ -135,6 +135,10 @@ func (api *API) Register(r *route.Router) {
 	r.Get("/receivers/all", wrap(api.listReceivers))
 	r.Post("/receivers", wrap(api.appendReceiver))
 	r.Del("/receivers/:name", wrap(api.delReceiver))
+
+	r.Get("/routers/all", wrap(api.listRouters))
+	r.Post("/routers", wrap(api.appendRouter))
+	r.Del("/routers/:uuid", wrap(api.delRouter))
 }
 
 // Update sets the configuration string to a new value.
@@ -487,6 +491,30 @@ func removeEmptyLabels(ls model.LabelSet) {
 
 func (api *API) listReceivers(w http.ResponseWriter, r *http.Request) {
 	api.respond(w, api.notifyManager.GetAllReceivers())
+
+}
+
+func (api *API) listRouters(w http.ResponseWriter, r *http.Request) {
+	api.respond(w, api.route)
+
+}
+
+func (api *API) appendRouter(w http.ResponseWriter, r *http.Request) {
+	var rr config.Route
+	if err := api.receive(r, &rr); err != nil {
+		api.respondError(w, apiError{
+			typ: errorBadData,
+			err: err,
+		}, nil)
+		return
+	}
+	api.route.AppendSecondRouter(&rr)
+
+}
+
+func (api *API) delRouter(w http.ResponseWriter, r *http.Request) {
+	uuid := route.Param(r.Context(), "uuid")
+	api.route.DelRouter(uuid)
 
 }
 

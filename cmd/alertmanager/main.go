@@ -471,7 +471,7 @@ func run() int {
 			silencer,
 			peer,
 		)
-		nManager.ApplyConfig(
+		err := nManager.ApplyConfig(
 			logger,
 			tmpl,
 			receivers,
@@ -479,6 +479,9 @@ func run() int {
 			notificationLog,
 			pipelineBuilder,
 			)
+		if err != nil {
+			return err
+		}
 		configuredReceivers.Set(float64(len(activeReceivers)))
 		configuredIntegrations.Set(float64(integrationsNum))
 

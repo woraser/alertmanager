@@ -650,6 +650,8 @@ type ExtraConfParam struct {
 type Route struct {
 	Receiver string `yaml:"receiver,omitempty" json:"receiver,omitempty"`
 
+	Uuid string `yaml:"uuid,omitempty" json:"uuid,omitempty"`
+
 	GroupByStr []string          `yaml:"group_by,omitempty" json:"group_by,omitempty"`
 	GroupBy    []model.LabelName `yaml:"-" json:"-"`
 	GroupByAll bool              `yaml:"-" json:"-"`

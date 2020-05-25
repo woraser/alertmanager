@@ -119,6 +119,19 @@ func (d *Dispatcher) Run() {
 	close(d.done)
 }
 
+func (d *Dispatcher) AppendRouter(r *Route) {
+	d.mtx.Lock()
+	defer d.mtx.Unlock()
+	d.route.Routes = append(d.route.Routes, r)
+
+}
+
+func (d *Dispatcher) DelRouter() {
+	d.mtx.Lock()
+	defer d.mtx.Unlock()
+}
+
+
 func (d *Dispatcher) run(it provider.AlertIterator) {
 	cleanup := time.NewTicker(30 * time.Second)
 	defer cleanup.Stop()
