@@ -15,6 +15,7 @@ package v2
 
 import (
 	"fmt"
+	"github.com/prometheus/alertmanager/notifyManager"
 	"net/http"
 	"regexp"
 	"sort"
@@ -52,6 +53,7 @@ import (
 
 // API represents an Alertmanager API v2
 type API struct {
+	notifyManager  notifyManager.Manager
 	peer           *cluster.Peer
 	silences       *silence.Silences
 	alerts         provider.Alerts

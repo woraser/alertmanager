@@ -16,6 +16,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/prometheus/alertmanager/notifyManager"
 	"net"
 	"net/http"
 	"net/url"
@@ -393,6 +394,8 @@ func run() int {
 		prometheus.DefaultRegisterer,
 		configLogger,
 	)
+	// Init notifyManager
+	nManager :=notifyManager.NewManager()
 	configCoordinator.Subscribe(func(conf *config.Config) error {
 		tmpl, err = template.FromGlobs(conf.Templates...)
 		if err != nil {
@@ -400,12 +403,45 @@ func run() int {
 		}
 		tmpl.ExternalURL = amURL
 
+		// Parse extra config
+		// the router must be second router under Root router
+		staticRouters := make([]*config.Route, 0)
+		staticReceivers := make([]*config.Receiver, 0)
+		if conf.ExtraConf != nil && conf.ExtraConf.StaticPath != ""{
+			configParams, err := config.ListRoutersFromStatic(conf.ExtraConf.StaticPath)
+			if err != nil {
+				level.Error(logger).Log("failed to parse extra static path")
+				errors.Wrap(err, "failed to parse extra static path")
+			}
+			for _, params := range configParams {
+				staticRouters = append(staticRouters, params.StaticRoute)
+				staticReceivers = append(staticReceivers, params.StaticReceiver)
+			}
+		}
+
 		// Build the routing tree and record which receivers are used.
 		routes := dispatch.NewRoute(conf.Route, nil)
+		// Append extra routers
+		if len(staticRouters) > 0 {
+			conf.Route.Routes = append(conf.Route.Routes, staticRouters...)
+			dispatchStaticRouters := dispatch.NewRouteFromStatic(staticRouters, routes)
+			if len(routes.Routes) > 0 {
+				for _, v := range dispatchStaticRouters {
+					routes.Routes = append(routes.Routes, v)
+				}
+			}else {
+				routes.Routes = dispatchStaticRouters
+			}
+		}
+
 		activeReceivers := make(map[string]struct{})
 		walkRoute(routes, func(r *dispatch.Route) {
 			activeReceivers[r.RouteOpts.Receiver] = struct{}{}
 		})
+		// Append extra receivers
+		if len(staticReceivers) > 0 {
+			conf.Receivers = append(conf.Receivers, staticReceivers...)
+		}
 
 		// Build the map of receiver to integrations.
 		receivers := make(map[string][]notify.Integration, len(activeReceivers))
@@ -431,22 +467,27 @@ func run() int {
 		inhibitor = inhibit.NewInhibitor(alerts, conf.InhibitRules, marker, logger)
 		silencer := silence.NewSilencer(silences, marker, logger)
 		pipeline := pipelineBuilder.New(
-			receivers,
-			waitFunc,
 			inhibitor,
 			silencer,
-			notificationLog,
 			peer,
 		)
+		nManager.ApplyConfig(
+			logger,
+			tmpl,
+			receivers,
+			waitFunc,
+			notificationLog,
+			pipelineBuilder,
+			)
 		configuredReceivers.Set(float64(len(activeReceivers)))
 		configuredIntegrations.Set(float64(integrationsNum))
 
 		api.Update(conf, func(labels model.LabelSet) {
 			inhibitor.Mutes(labels)
 			silencer.Mutes(labels)
-		})
+		}, nManager)
 
-		disp = dispatch.NewDispatcher(alerts, routes, pipeline, marker, timeoutFunc, logger, dispMetrics)
+		disp = dispatch.NewDispatcher(alerts, routes, pipeline, nManager, marker, timeoutFunc, logger, dispMetrics)
 		walkRoute(routes, func(r *dispatch.Route) {
 			if r.RouteOpts.RepeatInterval > *retention {
 				level.Warn(configLogger).Log(
@@ -462,6 +503,7 @@ func run() int {
 			}
 		})
 
+		go nManager.Run()
 		go disp.Run()
 		go inhibitor.Run()
 

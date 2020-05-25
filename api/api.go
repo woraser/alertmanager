@@ -25,6 +25,7 @@ import (
 	"github.com/prometheus/alertmanager/cluster"
 	"github.com/prometheus/alertmanager/config"
 	"github.com/prometheus/alertmanager/dispatch"
+	"github.com/prometheus/alertmanager/notifyManager"
 	"github.com/prometheus/alertmanager/provider"
 	"github.com/prometheus/alertmanager/silence"
 	"github.com/prometheus/alertmanager/types"
@@ -48,6 +49,7 @@ type API struct {
 // Options for the creation of an API object. Alerts, Silences, and StatusFunc
 // are mandatory to set. The zero value for everything else is a safe default.
 type Options struct {
+	NotifyManager notifyManager.Manager
 	// Alerts to be used by the API. Mandatory.
 	Alerts provider.Alerts
 	// Silences to be used by the API. Mandatory.
@@ -196,8 +198,8 @@ func (api *API) Register(r *route.Router, routePrefix string) *http.ServeMux {
 
 // Update config and resolve timeout of each API. APIv2 also needs
 // setAlertStatus to be updated.
-func (api *API) Update(cfg *config.Config, setAlertStatus func(model.LabelSet)) {
-	api.v1.Update(cfg)
+func (api *API) Update(cfg *config.Config, setAlertStatus func(model.LabelSet), manager *notifyManager.Manager) {
+	api.v1.Update(cfg, manager)
 	api.v2.Update(cfg, setAlertStatus)
 }
 

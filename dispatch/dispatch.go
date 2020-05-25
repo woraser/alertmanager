@@ -16,6 +16,7 @@ package dispatch
 import (
 	"context"
 	"fmt"
+	"github.com/prometheus/alertmanager/notifyManager"
 	"sort"
 	"sync"
 	"time"
@@ -60,6 +61,7 @@ func NewDispatcherMetrics(r prometheus.Registerer) *DispatcherMetrics {
 // Dispatcher sorts incoming alerts into aggregation groups and
 // assigns the correct notifiers to each.
 type Dispatcher struct {
+	notifyManager *notifyManager.Manager
 	route   *Route
 	alerts  provider.Alerts
 	stage   notify.Stage
@@ -83,12 +85,14 @@ func NewDispatcher(
 	ap provider.Alerts,
 	r *Route,
 	s notify.Stage,
+	manager *notifyManager.Manager,
 	mk types.Marker,
 	to func(time.Duration) time.Duration,
 	l log.Logger,
 	m *DispatcherMetrics,
 ) *Dispatcher {
 	disp := &Dispatcher{
+		notifyManager:manager,
 		alerts:  ap,
 		stage:   s,
 		route:   r,
@@ -290,6 +294,18 @@ func (d *Dispatcher) processAlert(alert *types.Alert, route *Route) {
 
 		go ag.run(func(ctx context.Context, alerts ...*types.Alert) bool {
 			_, _, err := d.stage.Exec(ctx, d.logger, alerts...)
+			if err != nil {
+				lvl := level.Error(d.logger)
+				if ctx.Err() == context.Canceled {
+					// It is expected for the context to be canceled on
+					// configuration reload or shutdown. In this case, the
+					// message should only be logged at the debug level.
+					lvl = level.Debug(d.logger)
+				}
+				lvl.Log("msg", "Notify for alerts failed", "num_alerts", len(alerts), "err", err)
+			}
+			// Get stages by name from ctx
+			_, _, err = d.notifyManager.Exec(ctx, d.logger, alerts...)
 			if err != nil {
 				lvl := level.Error(d.logger)
 				if ctx.Err() == context.Canceled {

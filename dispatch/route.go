@@ -54,6 +54,17 @@ type Route struct {
 	Routes []*Route
 }
 
+// TODO(ch) build router from staticRouters config.routers
+func NewRouteFromStatic(staticRouters []*config.Route, parent *Route) []*Route {
+	// Create default and overwrite with configured settings.
+	routerList := make([]*Route, 0, len(staticRouters))
+	for _, r :=range staticRouters {
+		newR := NewRoute(r, parent)
+		routerList = append(routerList, newR)
+	}
+	return routerList
+}
+
 // NewRoute returns a new route.
 func NewRoute(cr *config.Route, parent *Route) *Route {
 	// Create default and overwrite with configured settings.

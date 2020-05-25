@@ -19,6 +19,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -223,7 +224,7 @@ type Config struct {
 	InhibitRules []*InhibitRule `yaml:"inhibit_rules,omitempty" json:"inhibit_rules,omitempty"`
 	Receivers    []*Receiver    `yaml:"receivers,omitempty" json:"receivers,omitempty"`
 	Templates    []string       `yaml:"templates" json:"templates"`
-
+	ExtraConf    *ExtraConf     `yaml:"extra_conf,omitempty" json:"extra_conf,omitempty"`
 	// original is the input from which the config was parsed.
 	original string
 }
@@ -234,6 +235,47 @@ func (c Config) String() string {
 		return fmt.Sprintf("<error creating config string: %s>", err)
 	}
 	return string(b)
+}
+
+
+// TODO(ch) list routers and messages from static dir
+func ListRoutersFromStatic(filedir string) ([]*ExtraConfParam, error) {
+	rd, err := ioutil.ReadDir(filedir)
+	if err != nil {
+		fmt.Println("read file dir error", err)
+		return nil, err
+	}
+	params := make([]*ExtraConfParam, 0)
+	for _, fi := range rd {
+		fullFile := filedir + "/" + fi.Name()
+		content, err := ioutil.ReadFile(fullFile)
+		if err != nil {
+			return nil, err
+		}
+		cfg := &ExtraConfParam{}
+		unmarshalErr := yaml.UnmarshalStrict(content, cfg)
+		if unmarshalErr != nil {
+			return nil, unmarshalErr
+		}
+		params = append(params, cfg)
+	}
+
+	return params, nil
+
+}
+// TODO(ch) write router to static
+// call by api interface
+func WriteStaticRouters(filePath string, cfg *Route) error {
+	d, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	wErr := ioutil.WriteFile(filePath, d, os.ModeAppend)
+	if wErr != nil {
+		return wErr
+	}
+
+	return nil
 }
 
 // UnmarshalYAML implements the yaml.Unmarshaler interface for Config.
@@ -590,6 +632,18 @@ func (c *GlobalConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	*c = DefaultGlobalConfig()
 	type plain GlobalConfig
 	return unmarshal((*plain)(c))
+}
+
+// extra config
+type ExtraConf struct {
+	// 自定义router和receiver的静态地址
+	StaticPath string         `yaml:"static_path,omitempty" json:"static_path,omitempty"`
+}
+
+type ExtraConfParam struct {
+	// 自定义router和receiver的静态地址
+	StaticRoute        *Route         `yaml:"static_route,omitempty" json:"static_route,omitempty"`
+	StaticReceiver     *Receiver      `yaml:"static_receiver,omitempty" json:"static_receiver,omitempty"`
 }
 
 // A Route is a node that contains definitions of how to handle alerts.

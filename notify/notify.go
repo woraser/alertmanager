@@ -260,26 +260,22 @@ func NewPipelineBuilder(r prometheus.Registerer) *PipelineBuilder {
 	}
 }
 
+func (pb *PipelineBuilder) GetMetric() *metrics {
+	return pb.metrics
+}
+
 // New returns a map of receivers to Stages.
 func (pb *PipelineBuilder) New(
-	receivers map[string][]Integration,
-	wait func() time.Duration,
 	inhibitor *inhibit.Inhibitor,
 	silencer *silence.Silencer,
-	notificationLog NotificationLog,
 	peer *cluster.Peer,
-) RoutingStage {
-	rs := make(RoutingStage, len(receivers))
+) MultiStage {
 
 	ms := NewGossipSettleStage(peer)
 	is := NewMuteStage(inhibitor)
 	ss := NewMuteStage(silencer)
-
-	for name := range receivers {
-		st := createReceiverStage(name, receivers[name], wait, notificationLog, pb.metrics)
-		rs[name] = MultiStage{ms, is, ss, st}
-	}
-	return rs
+	mm := MultiStage{ms, is, ss}
+	return mm
 }
 
 // createReceiverStage creates a pipeline of stages for a receiver.
@@ -306,6 +302,16 @@ func createReceiverStage(
 		fs = append(fs, s)
 	}
 	return fs
+}
+
+func CreateReceiverStage(
+	name string,
+	integrations []Integration,
+	wait func() time.Duration,
+	notificationLog NotificationLog,
+	metrics *metrics,
+) Stage {
+	return createReceiverStage(name, integrations, wait, notificationLog, metrics)
 }
 
 // RoutingStage executes the inner stages based on the receiver specified in

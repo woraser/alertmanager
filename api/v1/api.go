@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/prometheus/alertmanager/notifyManager"
 	"net/http"
 	"regexp"
 	"sort"
@@ -67,6 +68,7 @@ func setCORS(w http.ResponseWriter) {
 
 // API provides registration of handlers for API routes.
 type API struct {
+	notifyManager *notifyManager.Manager
 	alerts   provider.Alerts
 	silences *silence.Silences
 	config   *config.Config
@@ -129,15 +131,20 @@ func (api *API) Register(r *route.Router) {
 	r.Post("/silences", wrap(api.setSilence))
 	r.Get("/silence/:sid", wrap(api.getSilence))
 	r.Del("/silence/:sid", wrap(api.delSilence))
+
+	r.Get("/receivers/all", wrap(api.listReceivers))
+	r.Post("/receivers", wrap(api.appendReceiver))
+	r.Del("/receivers/:name", wrap(api.delReceiver))
 }
 
 // Update sets the configuration string to a new value.
-func (api *API) Update(cfg *config.Config) {
+func (api *API) Update(cfg *config.Config, manager *notifyManager.Manager) {
 	api.mtx.Lock()
 	defer api.mtx.Unlock()
 
 	api.config = cfg
 	api.route = dispatch.NewRoute(cfg.Route, nil)
+	api.notifyManager = manager
 }
 
 type errorType string
@@ -476,6 +483,44 @@ func removeEmptyLabels(ls model.LabelSet) {
 			delete(ls, k)
 		}
 	}
+}
+
+func (api *API) listReceivers(w http.ResponseWriter, r *http.Request) {
+	api.respond(w, api.notifyManager.GetAllReceivers())
+
+}
+
+func (api *API) appendReceiver(w http.ResponseWriter, r *http.Request) {
+	var receiver config.Receiver
+	if err := api.receive(r, &receiver); err != nil {
+		api.respondError(w, apiError{
+			typ: errorBadData,
+			err: err,
+		}, nil)
+		return
+	}
+
+	if !api.notifyManager.VerifyName(receiver.Name) {
+		api.respondError(w, apiError{
+			typ: errorBadData,
+			err: fmt.Errorf(
+				"the name already exists: %s",
+				receiver.Name,
+			),
+		}, nil)
+		return
+	}
+
+	go func() {
+		api.notifyManager.InputChan <- &receiver
+	}()
+}
+
+func (api *API) delReceiver(w http.ResponseWriter, r *http.Request) {
+	name := route.Param(r.Context(), "name")
+	go func() {
+		api.notifyManager.RemoveChan <- name
+	}()
 }
 
 func (api *API) setSilence(w http.ResponseWriter, r *http.Request) {
